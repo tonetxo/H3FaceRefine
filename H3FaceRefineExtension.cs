@@ -298,8 +298,24 @@ public class H3FaceRefineExtension : Extension
         ));
     }
 
+    /// <summary>Returns the path unchanged if it stays inside 'root', otherwise a safe fallback path under root.</summary>
+    private static string SanitizeRelativeWithinRoot(string path, string root, string fallbackName)
+    {
+        string full = Path.GetFullPath(Utilities.CombinePathWithAbsolute(root, path));
+        string rootFull = Path.GetFullPath(root);
+        if (full.StartsWith(rootFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar))
+        {
+            return full;
+        }
+        Logs.Warning($"H3 Face Refine: rejected path traversal attempt '{path}' outside of user output root.");
+        return Path.Combine(rootFull, fallbackName);
+    }
+
     private static string ResolveVideoPath(User user, string videoFile)
     {
+        // Normalize separators so the prefix checks below also work on Windows paths.
+        videoFile = videoFile.Replace('\\', '/');
+
         if (videoFile.StartsWith("~/"))
         {
             videoFile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + videoFile[1..];
@@ -325,7 +341,9 @@ public class H3FaceRefineExtension : Extension
             if (relativePath is not null)
             {
                 string root = Utilities.CombinePathWithAbsolute(Environment.CurrentDirectory, user.OutputDirectory);
-                videoFile = UserImageHistoryHelper.GetRealPathFor(user, $"{root}/{relativePath}", root: root);
+                // Defense-in-depth: never let a client-supplied relative path escape the user's own output root.
+                relativePath = SanitizeRelativeWithinRoot(relativePath, root, "h3_facerefine_rejected.mp4");
+                return UserImageHistoryHelper.GetRealPathFor(user, relativePath, root: root);
             }
         }
 
@@ -335,13 +353,15 @@ public class H3FaceRefineExtension : Extension
     private static (string container, string codec) GetVideoFormat(WorkflowGenerator g)
     {
         string swarmVideoFormat = g.UserInput.Get(T2IParamTypes.VideoFormat, "h264-mp4");
+        // Normalize user-supplied format so weird casing/spacing cannot smuggle unexpected node values.
+        swarmVideoFormat = swarmVideoFormat.ToLowerInvariant().Trim();
         string container = "mp4";
         string codec = "auto";
         if (swarmVideoFormat.Contains("-"))
         {
             string[] parts = swarmVideoFormat.Split('-');
             codec = parts[0];
-            container = parts[1];
+            container = parts.Length > 1 ? parts[1] : "mp4";
         }
         else
         {
@@ -405,7 +425,27 @@ public class H3FaceRefineExtension : Extension
 
         Logs.Info($"H3 Face Refine: Processing video '{resolvedPath}'");
 
-        byte[] rawVideoData = File.ReadAllBytes(resolvedPath);
+        // Read through a using-scoped stream so the file handle is always released, even on failure.
+        byte[] rawVideoData;
+        try
+        {
+            using FileStream stream = File.OpenRead(resolvedPath);
+            rawVideoData = new byte[stream.Length];
+            int totalRead = 0;
+            while (totalRead < rawVideoData.Length)
+            {
+                int read = stream.Read(rawVideoData.AsSpan(totalRead));
+                if (read <= 0)
+                {
+                    break;
+                }
+                totalRead += read;
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new SwarmUserErrorException($"H3 Face Refine: failed to read video file '{resolvedPath}': {ex.Message}");
+        }
         VideoFile sourceVideo = new(rawVideoData, MediaType.GetByExtension(resolvedPath.AfterLast('.').ToLowerFast()));
 
         WGNodeData videoData = g.LoadVideo(sourceVideo, "${h3_face_refine_source_video}", false);
@@ -510,12 +550,20 @@ public class H3FaceRefineExtension : Extension
     /// <summary>Modular pipeline for tracking, cropping, DiT refining, and seamless face stitching.</summary>
     public static JArray ExecuteFaceRefinementPipeline(WorkflowGenerator g, JArray inputFrames, JArray audioNode = null)
     {
-        string targetMode = g.UserInput.Get(H3FaceRefineTarget, "Primary Face (Largest)");
+        string targetModeRaw = g.UserInput.Get(H3FaceRefineTarget, "Primary Face (Largest)");
+        // Validate against the known option set; unknown values would otherwise silently fall
+        // through to the Primary-Face branch below.
+        if (!TargetOptions.Contains(targetModeRaw))
+        {
+            Logs.Warning($"H3 Face Refine: unknown H3 Face Target '{targetModeRaw}', falling back to 'Primary Face (Largest)'.");
+            targetModeRaw = "Primary Face (Largest)";
+        }
         double denoise = g.UserInput.Get(H3FaceRefineDenoise, 0.27);
         int steps = g.UserInput.Get(H3FaceRefineSteps, 6);
         string canvasMode = g.UserInput.Get(H3FaceRefineCanvasSize, "auto_capped_768");
         int feather = g.UserInput.Get(H3FaceRefineFeather, 22);
         double confidence = g.UserInput.Get(H3FaceRefineConfidence, 0.35);
+        string targetMode = targetModeRaw; // validated above against TargetOptions
         bool hasRefImage1 = g.UserInput.TryGet(H3FaceRefineReferenceImage, out Image refImg1) && refImg1 is not null;
         bool hasRefImage2 = g.UserInput.TryGet(H3FaceRefineReferenceImage2, out Image refImg2) && refImg2 is not null;
         string userPromptSource = g.UserInput.Get(H3FaceRefinePrompt, "");

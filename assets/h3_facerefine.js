@@ -52,53 +52,50 @@
             let input_overrides = { 'images': 1 };
             let fullsrc = typeof getImageFullSrc === 'function' ? getImageFullSrc(src) : src;
             let prefix = typeof getImageOutPrefix === 'function' ? getImageOutPrefix() : 'Output';
-            input_overrides['hfacerefinevideofile'] = prefix + '/' + fullsrc;
+            // SwarmUI derives clean input IDs by stripping every non-alphanumeric char from the
+            // param name lowercased: 'H3 Face Refine Video File' -> h3facerefinevideofile.
+            // The legacy 'hfacerefinvideofile' key never matched any registered param and is removed.
             input_overrides['h3facerefinevideofile'] = prefix + '/' + fullsrc;
 
+            // Param names must match the C# registrations exactly (clean-ID derivation):
+            // 'H3 Face Target' -> h3facetarget, 'H3 Face Denoise Small Face' -> h3facedenoisesmallface, etc.
             let h3Params = [
-                'target',
-                'denoise',
-                'denoisesmallface',
-                'denoiselargeface',
-                'steps',
-                'canvassize',
-                'feather',
-                'detectionconfidence',
-                'refimagesize',
-                'prompt',
-                'referenceimage',
-                'referenceimagetwo'
+                'h3facetarget',
+                'h3facedenoise',
+                'h3facedenoisesmallface',
+                'h3facedenoiselargeface',
+                'h3facesteps',
+                'h3facecanvassize',
+                'h3facefeather',
+                'h3facedetectionconfidence',
+                'h3facerefimagesize',
+                'h3faceprompt',
+                'h3facereferenceimage',
+                'h3facereferenceimagetwo'
             ];
 
             // Always read the Face Refine parameters from the Generate panel, matching SwarmUI's clean IDs
             for (let param of h3Params) {
-                let cleanId = 'hface' + param;
-                let legacyId = 'h3face' + param;
-                let elem = document.getElementById('input_' + cleanId) || document.getElementById('input_' + legacyId);
+                let elem = document.getElementById('input_' + param);
                 if (elem) {
                     let val = typeof getInputVal === 'function' ? getInputVal(elem, false) : (elem.dataset && elem.dataset.filedata ? elem.dataset.filedata : elem.value);
                     if (val != null && val !== '') {
-                        input_overrides[cleanId] = val;
-                        input_overrides[legacyId] = val;
+                        input_overrides[param] = val;
                     }
                 }
             }
 
             // Defaults: 1 face pass (Primary), 0.27 denoise (matches the C# parameter default), 6 steps, 22px feather
-            if (!input_overrides['hfacetarget']) {
-                input_overrides['hfacetarget'] = 'Primary Face (Largest)';
+            if (!input_overrides['h3facetarget']) {
                 input_overrides['h3facetarget'] = 'Primary Face (Largest)';
             }
-            if (!input_overrides['hfacedenoise']) {
-                input_overrides['hfacedenoise'] = 0.27;
+            if (!input_overrides['h3facedenoise']) {
                 input_overrides['h3facedenoise'] = 0.27;
             }
-            if (!input_overrides['hfacesteps']) {
-                input_overrides['hfacesteps'] = 6;
+            if (!input_overrides['h3facesteps']) {
                 input_overrides['h3facesteps'] = 6;
             }
-            if (!input_overrides['hfacefeather']) {
-                input_overrides['hfacefeather'] = 22;
+            if (!input_overrides['h3facefeather']) {
                 input_overrides['h3facefeather'] = 22;
             }
 
