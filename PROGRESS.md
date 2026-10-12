@@ -1,6 +1,34 @@
 # H3FaceRefine — progreso de diagnóstico y fixes (sesiones 2026-10-12)
 
-## ESTADO: la sustitución de identidad estaba ROTA por refnorm + anchor. Ambos ELIMINADOS (fase de build).
+## ESTADO: auto-alineado del parche (anti-"slide") implementado; falta verificación en vivo.
+
+**Problema:** el pegado es exacto (dx≈0) pero el contenido repintado dentro del parche queda
+desplazado unos pocos px (dy≈+3.5, dh≈+2-10 en el vídeo del capitán) → se ve la cara refinada
+"deslizándose" sobre la cabeza original.
+
+**Descubrimiento clave:** `transform["face_rect"]` del tracker NO es la posición real de la cara
+en el crop: está SIEMPRE centrado en el canvas (`cw/2 - fw/2`). Medición offline del crop real
+(576x576, frames 0-2): cara en `x=215 y=104 w=146 h=192` → centro (288, **200**), no (288,288).
+Usar face_rect como objetivo daba un desplazamiento de ~88px → rechazado por `max_shift=40`
+→ el realign no hacía nada. (El crash `numpy.int64` era un bug del print de debug.)
+
+**Solución (Fase A):** nodo Swarm nuevo `SwarmH3FaceRealign` en
+`src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmModels.py`:
+- Detecta la cara (YOLO) en el crop de ORIGEN y en el REFINADO, y traslada el refinado para
+  que ambos centros coincidan. **Solo traslación** (con barba/sustitución la caja YOLO cambia
+  de tamaño y escalar distorsionaría).
+- Clamp `max_shift=40px`, suavizado gaussiano por segmentos (cortes), pass-through si falta
+  detección o el desplazamiento es irreal.
+- **Test offline** (crops reales desplazados a propósito, venv de ComfyUI): residuo
+  0.8px con `smooth_frames=1`, 1.6px en un ramp suave, 0.09px sin desplazamiento, y rechaza
+  correctamente un salto de 80px. ✓
+- C#: param `H3 Face Auto-Align Paste` (default true) + wiring `VAEDecode → Realign → H3FaceStitch`
+  pasando `crops` del tracker como `source_crops`.
+- PENDIENTE: verificación en vivo (V1 barba den0.5 → medir dy≈0; V2/V3/V4 identidad 0.65/0.75).
+
+---
+
+## ESTADO (ronda anterior): la sustitución de identidad estaba ROTA por refnorm + anchor. Ambos ELIMINADOS.
 
 **Diagnóstico forense de los runs del usuario (runs 39-45, metadata embebida):**
 - Run 39/40 (ref crudo, SIN refnorm, SIN anchor): **identidad SÍ transferida** — bigote/grBigote

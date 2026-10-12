@@ -31,6 +31,7 @@ public class H3FaceRefineExtension : Extension
     public static T2IRegisteredParam<Image> H3FaceRefineReferenceImage;
     public static T2IRegisteredParam<Image> H3FaceRefineReferenceImage2;
     public static T2IRegisteredParam<string> H3FaceRefineRefSize;
+    public static T2IRegisteredParam<bool> H3FaceRealignPaste;
 
     // Internal history video parameter
     public static T2IRegisteredParam<string> H3FaceRefineVideoFile;
@@ -52,6 +53,7 @@ public class H3FaceRefineExtension : Extension
 
         // Map ComfyUI node to feature set
         ComfyUIBackendExtension.NodeToFeatureMap["H3FaceTrackCrop"] = "h3_face_refine";
+        ComfyUIBackendExtension.NodeToFeatureMap["SwarmH3FaceRealign"] = "h3_face_refine";
         ComfyUIBackendExtension.NodeToFeatureMap["MiniMaxH3NativeAudioLock"] = "h3_audio_lock";
 
         // Register installable features if missing
@@ -272,6 +274,17 @@ public class H3FaceRefineExtension : Extension
             DoNotPreview: true,
             IsAdvanced: true,
             GetValues: _ => ["match", "max"]
+        ));
+
+        H3FaceRealignPaste = T2IParamTypes.Register<bool>(new T2IParamType(
+            Name: "H3 Face Auto-Align Paste",
+            Description: "Detects the face in each regenerated crop and in the matching source crop, then shifts the regenerated one so the two faces coincide before stitching - cancelling the few-pixel content offset H3 leaves inside the paste (the visible 'sliding face'). Translation only, so a substituted identity is not distorted. Leave on.",
+            Default: "true",
+            Toggleable: true,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true
         ));
 
         H3FaceRefineVideoFile = T2IParamTypes.Register<string>(new T2IParamType(
@@ -702,6 +715,27 @@ public class H3FaceRefineExtension : Extension
                 ["vae"] = g.CurrentVae.Path
             });
             JArray refinedCrops = [decodeNode, 0];
+
+            // H3's repaint re-frames the face content inside the crop by a few pixels while the
+            // paste position itself is exact - which reads as the refined face sliding over the
+            // original head. The node detects the face in each refined crop and in the matching
+            // source crop and shifts the refined one so the two faces coincide (translation only,
+            // so a substituted identity is not distorted).
+            if (g.UserInput.Get(H3FaceRealignPaste, true))
+            {
+                string realignNode = g.CreateNode("SwarmH3FaceRealign", new JObject()
+                {
+                    ["refined_crops"] = refinedCrops,
+                    ["source_crops"] = crops,
+                    ["transform"] = transform,
+                    ["detector"] = "bbox/face_yolov8m.pt",
+                    ["confidence"] = confidence,
+                    ["max_shift"] = 40.0,
+                    ["align_strength"] = 1.0,
+                    ["smooth_frames"] = 9
+                });
+                refinedCrops = [realignNode, 0];
+            }
 
             string stitchNode = g.CreateNode("H3FaceStitch", new JObject()
             {
