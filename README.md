@@ -243,6 +243,15 @@ full forensic log.
 - The JS forwards parameters using SwarmUI's clean input IDs derived from the registered param
   names (`h3facetarget`, `h3facedenoisesmallface`, ...; the hidden video-file param is
   `h3facerefinevideofile`) and clears stale state for that param on load.
+- **Shared-default constants**: numeric parameter defaults live once in `H3FaceRefineExtension.H3FaceRefineDefaults`
+  (C#); the JS defaults in `assets/h3_facerefine.js` mirror them manually (keep in sync when changing either side).
+- **Fragile internal-API coupling** (compile against SwarmUI master after core updates): `g.IsMiniMaxH3()`,
+  `T2IModelClassSorter.CompatMiniMaxH3`, and `WorkflowGenerator.CurrentCompat()`/`AttachedAudio` are treated as
+  stable by this extension but are not established public API — a SwarmUI update can rename them. The H3 model
+  fallback intentionally scans `Program.T2IModelSets.Values` (no hardcoded set names) to survive set renaming.
+- **`.diag-backup/`** is a *diagnostic aid, not product code*: `run_diag.py` and its `V*.json` workflows hardcode
+  the author's host (port 7822, specific safetensor filenames) to batch-run A/B experiments against a running
+  SwarmUI. They are git-ignored; do not rely on their paths or model names in production.
 - Planned improvements (see `PROGRESS.md`): segmenting >362-frame videos into windows, SAM-based paste masks
   (`H3FaceMaskSAM`, feather 4–8).
 

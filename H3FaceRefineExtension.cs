@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticExtensions;
 using SwarmUI.Accounts;
@@ -46,6 +47,43 @@ public class H3FaceRefineExtension : Extension
         "Center Person",
         "Identity Match (Reference Image)"
     ];
+
+    /// <summary>Default target mode, matching the registration default.</summary>
+    public const string DefaultTarget = "Primary Face (Largest)";
+
+    /// <summary>Defaults shared by the parameter registration, the generation code, and the button JS defaults (assets/h3_facerefine.js - keep in sync there, JS cannot read C# constants).</summary>
+    public static class H3FaceRefineDefaults
+    {
+        /// <summary>Default face-regeneration denoise.</summary>
+        public const double Denoise = 0.27;
+
+        /// <summary>Default small-face denoise multiplier.</summary>
+        public const double MultSmall = 1.0;
+
+        /// <summary>Default large-face denoise multiplier.</summary>
+        public const double MultLarge = 0.65;
+
+        /// <summary>Default sampling steps.</summary>
+        public const int Steps = 6;
+
+        /// <summary>Default composite feather radius, in source pixels.</summary>
+        public const int Feather = 22;
+
+        /// <summary>Default face-detection confidence.</summary>
+        public const double Confidence = 0.35;
+    }
+
+    /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
+    private static string Num(double value)
+    {
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
+    private static string Num(int value)
+    {
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
 
     public override void OnInit()
     {
@@ -117,7 +155,7 @@ public class H3FaceRefineExtension : Extension
                          "- 'Left Person' / 'Right Person': For dialog or 2-shot scenes.\n" +
                          "- 'Center Person': Focuses on the central subject.\n" +
                          "- 'Identity Match (Reference Image)': Locks onto the subject matching Reference Image 1 via InsightFace embeddings.",
-            Default: "Primary Face (Largest)",
+            Default: DefaultTarget,
             Group: H3FaceRefineGroup,
             OrderPriority: priority++,
             FeatureFlag: "h3_face_refine",
@@ -131,7 +169,7 @@ public class H3FaceRefineExtension : Extension
                          "Unlike SDXL, the value maps to a noise fraction of the sigma schedule: 0.30 repaints about 30% of the face content per frame. " +
                          "For RESTORING a face keep the Large-Face Multiplier low (default): big faces are protected. " +
                          "For SUBSTITUTING a face with a reference portrait of ANOTHER person, set 'Denoise Large Face' to 1.0 and raise this to 0.5-0.65 - measured: 0.5 already transfers distinguishing features (eg facial hair), 0.65 transfers a fully different identity (full beard) while keeping the head motion.",
-            Default: "0.27",
+            Default: Num(H3FaceRefineDefaults.Denoise),
             Min: 0.05,
             Max: 0.80,
             Step: 0.01,
@@ -145,7 +183,7 @@ public class H3FaceRefineExtension : Extension
         H3FaceRefineMultSmall = T2IParamTypes.Register<double>(new T2IParamType(
             Name: "H3 Face Denoise Small Face",
             Description: "MULTIPLIER on the denoise for the SMALLEST faces (they have no real detail to preserve and benefit most from the pass). Keep at 1.0.",
-            Default: "1.0",
+            Default: Num(H3FaceRefineDefaults.MultSmall),
             Min: 0.0,
             Max: 1.0,
             Step: 0.05,
@@ -160,7 +198,7 @@ public class H3FaceRefineExtension : Extension
         H3FaceRefineMultLarge = T2IParamTypes.Register<double>(new T2IParamType(
             Name: "H3 Face Denoise Large Face",
             Description: "MULTIPLIER on the denoise for the LARGEST faces (>= ~120px source height). Low values protect the real detail of a close-up face - the restore default. For face SUBSTITUTION with a reference of a different person, set 1.0 with denoise 0.5-0.65, or the repaint is too gentle to transfer the new identity.",
-            Default: "0.65",
+            Default: Num(H3FaceRefineDefaults.MultLarge),
             Min: 0.0,
             Max: 1.0,
             Step: 0.05,
@@ -175,7 +213,7 @@ public class H3FaceRefineExtension : Extension
         H3FaceRefineSteps = T2IParamTypes.Register<int>(new T2IParamType(
             Name: "H3 Face Steps",
             Description: "Sampling steps for the MiniMax H3 DiT refiner. Typically 4 to 8 steps (6 recommended).",
-            Default: "6",
+            Default: Num(H3FaceRefineDefaults.Steps),
             Min: 1,
             Max: 20,
             Step: 1,
@@ -202,7 +240,7 @@ public class H3FaceRefineExtension : Extension
         H3FaceRefineFeather = T2IParamTypes.Register<int>(new T2IParamType(
             Name: "H3 Face Feather",
             Description: "Gaussian blur feather radius in source pixels applied to the composite paste mask. 18-24 provides soft, invisible edge blending.",
-            Default: "22",
+            Default: Num(H3FaceRefineDefaults.Feather),
             Min: 2,
             Max: 64,
             Step: 2,
@@ -216,7 +254,7 @@ public class H3FaceRefineExtension : Extension
         H3FaceRefineConfidence = T2IParamTypes.Register<double>(new T2IParamType(
             Name: "H3 Face Detection Confidence",
             Description: "YOLO detection confidence threshold (0.35 default). Lower detects partially occluded or distant faces.",
-            Default: "0.35",
+            Default: Num(H3FaceRefineDefaults.Confidence),
             Min: 0.10,
             Max: 0.90,
             Step: 0.05,
@@ -408,9 +446,10 @@ public class H3FaceRefineExtension : Extension
 
         if (!g.IsMiniMaxH3())
         {
-            // Attempt to find any MiniMax H3 model available
-            T2IModel h3Model = Program.T2IModelSets["Diffusion Models"]?.Models?.Values?.FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID)
-                ?? Program.T2IModelSets["Stable-Diffusion"]?.Models?.Values?.FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID);
+            // Search every model set - avoids hardcoding set names ("Diffusion Models", etc.) that may change upstream.
+            T2IModel h3Model = Program.T2IModelSets.Values
+                .SelectMany(set => set.Models?.Values ?? Enumerable.Empty<T2IModel>())
+                .FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID);
 
             if (h3Model is not null)
             {
@@ -550,19 +589,19 @@ public class H3FaceRefineExtension : Extension
     /// <summary>Modular pipeline for tracking, cropping, DiT refining, and seamless face stitching.</summary>
     public static JArray ExecuteFaceRefinementPipeline(WorkflowGenerator g, JArray inputFrames, JArray audioNode = null)
     {
-        string targetModeRaw = g.UserInput.Get(H3FaceRefineTarget, "Primary Face (Largest)");
+        string targetModeRaw = g.UserInput.Get(H3FaceRefineTarget, DefaultTarget);
         // Validate against the known option set; unknown values would otherwise silently fall
         // through to the Primary-Face branch below.
         if (!TargetOptions.Contains(targetModeRaw))
         {
-            Logs.Warning($"H3 Face Refine: unknown H3 Face Target '{targetModeRaw}', falling back to 'Primary Face (Largest)'.");
-            targetModeRaw = "Primary Face (Largest)";
+            Logs.Warning($"H3 Face Refine: unknown H3 Face Target '{targetModeRaw}', falling back to '{DefaultTarget}'.");
+            targetModeRaw = DefaultTarget;
         }
-        double denoise = g.UserInput.Get(H3FaceRefineDenoise, 0.27);
-        int steps = g.UserInput.Get(H3FaceRefineSteps, 6);
+        double denoise = g.UserInput.Get(H3FaceRefineDenoise, H3FaceRefineDefaults.Denoise);
+        int steps = g.UserInput.Get(H3FaceRefineSteps, H3FaceRefineDefaults.Steps);
         string canvasMode = g.UserInput.Get(H3FaceRefineCanvasSize, "auto_capped_768");
-        int feather = g.UserInput.Get(H3FaceRefineFeather, 22);
-        double confidence = g.UserInput.Get(H3FaceRefineConfidence, 0.35);
+        int feather = g.UserInput.Get(H3FaceRefineFeather, H3FaceRefineDefaults.Feather);
+        double confidence = g.UserInput.Get(H3FaceRefineConfidence, H3FaceRefineDefaults.Confidence);
         string targetMode = targetModeRaw; // validated above against TargetOptions
         bool hasRefImage1 = g.UserInput.TryGet(H3FaceRefineReferenceImage, out Image refImg1) && refImg1 is not null;
         bool hasRefImage2 = g.UserInput.TryGet(H3FaceRefineReferenceImage2, out Image refImg2) && refImg2 is not null;
@@ -707,8 +746,8 @@ public class H3FaceRefineExtension : Extension
                 ["model"] = samplerModel,
                 ["av_latent"] = samplerLatent,
                 ["transform"] = transform,
-                ["denoise_multiplier_small_face"] = g.UserInput.Get(H3FaceRefineMultSmall, 1.0),
-                ["denoise_multiplier_large_face"] = g.UserInput.Get(H3FaceRefineMultLarge, 0.65),
+                ["denoise_multiplier_small_face"] = g.UserInput.Get(H3FaceRefineMultSmall, H3FaceRefineDefaults.MultSmall),
+                ["denoise_multiplier_large_face"] = g.UserInput.Get(H3FaceRefineMultLarge, H3FaceRefineDefaults.MultLarge),
                 ["scale_mode"] = "absolute_px",
                 ["face_px_small"] = 30.0,
                 ["face_px_large"] = 120.0,
