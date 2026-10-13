@@ -2,9 +2,9 @@
 (function() {
     try {
         if (typeof deleteCookie === 'function') {
-            deleteCookie('lastparam_input_hfacerefinvideofile');
+            deleteCookie('lastparam_input_hfacerefinevideofile');
         }
-        let el = document.getElementById('input_hfacerefinvideofile');
+        let el = document.getElementById('input_hfacerefinevideofile');
         if (el) el.value = '';
     } catch (e) {
         console.error('Error cleaning H3 Face Refine param state:', e);
@@ -53,12 +53,12 @@
     let fullsrc = typeof getImageFullSrc === 'function' ? getImageFullSrc(src) : src;
     let prefix = typeof getImageOutPrefix === 'function' ? getImageOutPrefix() : 'Output';
     // SwarmUI's CleanTypeName lowercases the param name and keeps ONLY lowercase letters (digits
-    // are dropped): 'H3 Face Refine Video File' -> hfacerefinvideofile. The server applies the
+    // are dropped): 'H3 Face Refine Video File' -> hfacerefinevideofile. The server applies the
     // same cleaning to incoming keys, so the legacy id is what actually matches. Other H3 params
     // (denoise, steps, feather, ...) need NO overrides here: the gen handler already collects them
     // from the generate panel under their real ids, and duplicate-key overrides were winning over
     // the user's panel values (they resolve to the same id server-side, and landed last).
-    input_overrides['hfacerefinvideofile'] = prefix + '/' + fullsrc;
+    input_overrides['hfacerefinevideofile'] = prefix + '/' + fullsrc;
 
     // Disarm standard refiners / init images from the session so they cannot contaminate on-demand video refinement
     input_overrides['refinermethod'] = null;

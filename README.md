@@ -242,7 +242,7 @@ full forensic log.
   `h3_face_refine`, `MiniMaxH3NativeAudioLock` → `h3_audio_lock`).
 - Clean input IDs in SwarmUI: the param name is lowercased and **everything except lowercase
   letters a-z is dropped (digits included)**: `H3 Face Target` → `hfacetarget`,
-  `H3 Face Denoise` → `hfacedenoise`, the hidden video-file param → `hfacerefinvideofile`.
+  `H3 Face Denoise` → `hfacedenoise`, the hidden video-file param → `hfacerefinevideofile`.
   The history-button JS sends ONLY the video-file id and the refiner disarms — every other
   parameter is collected from the generate panel automatically under its real id. A earlier
   "fix" that sent `h3face*` keys resolved to the same ids server-side (keys are cleaned on
