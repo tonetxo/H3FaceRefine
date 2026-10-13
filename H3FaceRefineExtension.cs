@@ -37,6 +37,9 @@ public class H3FaceRefineExtension : Extension
     public static T2IRegisteredParam<int> H3FaceAlignSmooth;
     public static T2IRegisteredParam<double> H3FaceAlignMaxShift;
     public static T2IRegisteredParam<bool> H3FaceSAMMask;
+    public static T2IRegisteredParam<double> H3FaceSAMThreshold;
+    public static T2IRegisteredParam<int> H3FaceSAMDilation;
+    public static T2IRegisteredParam<int> H3FaceSAMFeather;
 
     // Internal history video parameter
     public static T2IRegisteredParam<string> H3FaceRefineVideoFile;
@@ -90,6 +93,15 @@ public class H3FaceRefineExtension : Extension
 
         /// <summary>Impact Pack SAM model filename used for face-shaped paste masks.</summary>
         public const string SamModel = "sam_vit_b_01ec64.pth";
+
+        /// <summary>Default SAM candidate-mask score threshold.</summary>
+        public const double SamThreshold = 0.93;
+
+        /// <summary>Default SAM mask dilation, in canvas px.</summary>
+        public const int SamDilation = 16;
+
+        /// <summary>Default SAM mask feather, in canvas px.</summary>
+        public const int SamFeather = 6;
     }
 
     /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
@@ -412,13 +424,56 @@ public class H3FaceRefineExtension : Extension
 
         H3FaceSAMMask = T2IParamTypes.Register<bool>(new T2IParamType(
             Name: "H3 Face SAM Mask",
-            Description: "Segment the face per frame with SAM (ComfyUI-Impact-Pack) and paste through that face-shaped mask instead of a fixed ellipse - the blend follows jaw and hairline, killing the border artifacts of a fixed mask. Forces a small feather. Needs ComfyUI-Impact-Pack and a SAM model in models/sams/.",
+            Description: "Segment the face per frame with SAM (ComfyUI-Impact-Pack) and paste through that face-shaped mask instead of a fixed ellipse - the blend follows jaw and hairline, killing the border artifacts of a fixed mask. Needs ComfyUI-Impact-Pack and a SAM model in models/sams/.",
             Default: "true",
             Toggleable: true,
             Group: H3FaceRefineGroup,
             OrderPriority: priority++,
             FeatureFlag: "h3_face_refine",
             DoNotPreview: true
+        ));
+
+        H3FaceSAMThreshold = T2IParamTypes.Register<double>(new T2IParamType(
+            Name: "H3 Face SAM Threshold",
+            Description: "Candidate-mask score threshold for SAM. High (0.93) keeps only high-confidence segments - with a substituted identity SAM sometimes latches onto a sub-part of the face. Lower (0.5-0.7) if the mask looks too small.",
+            Default: Num(H3FaceRefineDefaults.SamThreshold),
+            Min: 0.0,
+            Max: 1.0,
+            Step: 0.01,
+            ViewType: ParamViewType.SLIDER,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
+        ));
+
+        H3FaceSAMDilation = T2IParamTypes.Register<int>(new T2IParamType(
+            Name: "H3 Face SAM Dilation",
+            Description: "Grow the SAM mask outward, in canvas px. Grows past the silhouette so the refined face's slightly different jaw/hairline is covered - raise it if you see the refined face clipped at the mask edge.",
+            Default: Num(H3FaceRefineDefaults.SamDilation),
+            Min: 0,
+            Max: 96,
+            Step: 2,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
+        ));
+
+        H3FaceSAMFeather = T2IParamTypes.Register<int>(new T2IParamType(
+            Name: "H3 Face SAM Feather",
+            Description: "Feather radius (canvas px) used with the SAM mask. The pack recommends 4-8; raise to 12-16 if the mask edge still shows as a seam.",
+            Default: Num(H3FaceRefineDefaults.SamMaskFeather),
+            Min: 2,
+            Max: 64,
+            Step: 2,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
         ));
 
         H3FaceRefineVideoFile = T2IParamTypes.Register<string>(new T2IParamType(
@@ -941,7 +996,7 @@ public class H3FaceRefineExtension : Extension
                 ["transform"] = transform,
                 ["paste_region"] = "face_ellipse",
                 ["mask_dilation"] = 24,
-                ["feather"] = samMask ? H3FaceRefineDefaults.SamMaskFeather : feather,
+                ["feather"] = samMask ? g.UserInput.Get(H3FaceSAMFeather, H3FaceRefineDefaults.SamMaskFeather) : feather,
                 ["colour_match"] = 1.0,
                 ["blend"] = 1.0,
                 ["undetected_frames"] = "fade_out"
@@ -962,8 +1017,8 @@ public class H3FaceRefineExtension : Extension
                     ["crops"] = crops,
                     ["sam_model"] = new JArray(samLoader, 0),
                     ["transform"] = transform,
-                    ["threshold"] = 0.93,
-                    ["dilation"] = 0,
+                    ["threshold"] = g.UserInput.Get(H3FaceSAMThreshold, H3FaceRefineDefaults.SamThreshold),
+                    ["dilation"] = g.UserInput.Get(H3FaceSAMDilation, H3FaceRefineDefaults.SamDilation),
                     ["temporal_smooth"] = 5
                 });
                 stitchInputs["masks"] = new JArray(samMaskNode, 0);
