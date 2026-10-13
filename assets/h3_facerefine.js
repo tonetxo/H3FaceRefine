@@ -2,9 +2,9 @@
 (function() {
     try {
         if (typeof deleteCookie === 'function') {
-            deleteCookie('lastparam_input_h3facerefinevideofile');
+            deleteCookie('lastparam_input_hfacerefinvideofile');
         }
-        let el = document.getElementById('input_h3facerefinevideofile');
+        let el = document.getElementById('input_hfacerefinvideofile');
         if (el) el.value = '';
     } catch (e) {
         console.error('Error cleaning H3 Face Refine param state:', e);
@@ -49,61 +49,22 @@
                 return;
             }
 
-            let input_overrides = { 'images': 1 };
-            let fullsrc = typeof getImageFullSrc === 'function' ? getImageFullSrc(src) : src;
-            let prefix = typeof getImageOutPrefix === 'function' ? getImageOutPrefix() : 'Output';
-            // SwarmUI derives clean input IDs by stripping every non-alphanumeric char from the
-            // param name lowercased: 'H3 Face Refine Video File' -> h3facerefinevideofile.
-            // The legacy 'hfacerefinvideofile' key never matched any registered param and is removed.
-            input_overrides['h3facerefinevideofile'] = prefix + '/' + fullsrc;
+    let input_overrides = { 'images': 1 };
+    let fullsrc = typeof getImageFullSrc === 'function' ? getImageFullSrc(src) : src;
+    let prefix = typeof getImageOutPrefix === 'function' ? getImageOutPrefix() : 'Output';
+    // SwarmUI's CleanTypeName lowercases the param name and keeps ONLY lowercase letters (digits
+    // are dropped): 'H3 Face Refine Video File' -> hfacerefinvideofile. The server applies the
+    // same cleaning to incoming keys, so the legacy id is what actually matches. Other H3 params
+    // (denoise, steps, feather, ...) need NO overrides here: the gen handler already collects them
+    // from the generate panel under their real ids, and duplicate-key overrides were winning over
+    // the user's panel values (they resolve to the same id server-side, and landed last).
+    input_overrides['hfacerefinvideofile'] = prefix + '/' + fullsrc;
 
-            // Param names must match the C# registrations exactly (clean-ID derivation):
-            // 'H3 Face Target' -> h3facetarget, 'H3 Face Denoise Small Face' -> h3facedenoisesmallface, etc.
-            let h3Params = [
-                'h3facetarget',
-                'h3facedenoise',
-                'h3facedenoisesmallface',
-                'h3facedenoiselargeface',
-                'h3facesteps',
-                'h3facecanvassize',
-                'h3facefeather',
-                'h3facedetectionconfidence',
-                'h3facerefimagesize',
-                'h3faceprompt',
-                'h3facereferenceimage',
-                'h3facereferenceimagetwo'
-            ];
-
-            // Always read the Face Refine parameters from the Generate panel, matching SwarmUI's clean IDs
-            for (let param of h3Params) {
-                let elem = document.getElementById('input_' + param);
-                if (elem) {
-                    let val = typeof getInputVal === 'function' ? getInputVal(elem, false) : (elem.dataset && elem.dataset.filedata ? elem.dataset.filedata : elem.value);
-                    if (val != null && val !== '') {
-                        input_overrides[param] = val;
-                    }
-                }
-            }
-
-            // Defaults: 1 face pass (Primary), 0.27 denoise (matches the C# parameter default), 6 steps, 22px feather
-            if (!input_overrides['h3facetarget']) {
-                input_overrides['h3facetarget'] = 'Primary Face (Largest)';
-            }
-            if (!input_overrides['h3facedenoise']) {
-                input_overrides['h3facedenoise'] = 0.27;
-            }
-            if (!input_overrides['h3facesteps']) {
-                input_overrides['h3facesteps'] = 6;
-            }
-            if (!input_overrides['h3facefeather']) {
-                input_overrides['h3facefeather'] = 22;
-            }
-
-            // Disarm standard refiners / init images from the session so they cannot contaminate on-demand video refinement
-            input_overrides['refinermethod'] = null;
-            input_overrides['refinermodel'] = null;
-            input_overrides['refinerupscale'] = null;
-            input_overrides['initimage'] = null;
+    // Disarm standard refiners / init images from the session so they cannot contaminate on-demand video refinement
+    input_overrides['refinermethod'] = null;
+    input_overrides['refinermodel'] = null;
+    input_overrides['refinerupscale'] = null;
+    input_overrides['initimage'] = null;
 
             if (typeof showToast === 'function') {
                 showToast('Starting H3 Face Refine on video...');

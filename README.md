@@ -240,9 +240,14 @@ full forensic log.
   sampler/refiner and sets `SkipFurtherSteps`) and **45** (live in-pipeline refinement).
 - Node→feature mapping lives in `ComfyUIBackendExtension.NodeToFeatureMap` (`H3FaceTrackCrop` →
   `h3_face_refine`, `MiniMaxH3NativeAudioLock` → `h3_audio_lock`).
-- The JS forwards parameters using SwarmUI's clean input IDs derived from the registered param
-  names (`h3facetarget`, `h3facedenoisesmallface`, ...; the hidden video-file param is
-  `h3facerefinevideofile`) and clears stale state for that param on load.
+- Clean input IDs in SwarmUI: the param name is lowercased and **everything except lowercase
+  letters a-z is dropped (digits included)**: `H3 Face Target` → `hfacetarget`,
+  `H3 Face Denoise` → `hfacedenoise`, the hidden video-file param → `hfacerefinvideofile`.
+  The history-button JS sends ONLY the video-file id and the refiner disarms — every other
+  parameter is collected from the generate panel automatically under its real id. A earlier
+  "fix" that sent `h3face*` keys resolved to the same ids server-side (keys are cleaned on
+  arrival) but its default-fallbacks then overrode the panel values (last key processed wins) —
+  do not re-add per-param overrides from the panel in that JS.
 - **Shared-default constants**: numeric parameter defaults live once in `H3FaceRefineExtension.H3FaceRefineDefaults`
   (C#); the JS defaults in `assets/h3_facerefine.js` mirror them manually (keep in sync when changing either side).
 - **Fragile internal-API coupling** (compile against SwarmUI master after core updates): `g.IsMiniMaxH3()`,
