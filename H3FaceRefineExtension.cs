@@ -819,7 +819,7 @@ public class H3FaceRefineExtension : Extension
                     ["confidence"] = confidence,
                     ["max_shift"] = 40.0,
                     ["align_strength"] = 1.0,
-                    ["smooth_frames"] = 9
+                    ["smooth_frames"] = 13
                 });
                 refinedCrops = [realignNode, 0];
             }
