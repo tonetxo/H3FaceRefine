@@ -133,6 +133,9 @@ refined frames (audio/FPS metadata preserved).
 | `H3 Face Reference Image` | *(unset)* | image | Portrait for Person 1 / Left; also the identity anchor for `Identity Match`. |
 | `H3 Face Reference Image Two` | *(unset)* | image | Portrait for Person 2 / Right. |
 | `H3 Face Ref Image Size` | `match` | `match`, `max` | `max` conditions the ref at 2048px short edge — stronger identity, several times slower. |
+| `H3 Face Align Strength` | `1.0` | 0 – 1 | Share of the auto-align correction applied. Lower if the refined face wobbles inside the paste at high denoise. |
+| `H3 Face Align Smooth Frames` | `13` | 1 – 51 (odd) | Gaussian window smoothing the align correction over time. |
+| `H3 Face Align Max Shift` | `40` | 10 – 200 (px) | Frames whose two face centres are farther apart than this are left unaligned (mismatch detection). |
 | `H3 Face Refine Video File` | *(hidden)* | string | Internal parameter set by the history button. |
 
 ---

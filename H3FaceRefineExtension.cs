@@ -33,6 +33,9 @@ public class H3FaceRefineExtension : Extension
     public static T2IRegisteredParam<Image> H3FaceRefineReferenceImage2;
     public static T2IRegisteredParam<string> H3FaceRefineRefSize;
     public static T2IRegisteredParam<bool> H3FaceRealignPaste;
+    public static T2IRegisteredParam<double> H3FaceAlignStrength;
+    public static T2IRegisteredParam<int> H3FaceAlignSmooth;
+    public static T2IRegisteredParam<double> H3FaceAlignMaxShift;
 
     // Internal history video parameter
     public static T2IRegisteredParam<string> H3FaceRefineVideoFile;
@@ -71,6 +74,15 @@ public class H3FaceRefineExtension : Extension
 
         /// <summary>Default face-detection confidence.</summary>
         public const double Confidence = 0.35;
+
+        /// <summary>Default auto-align correction strength.</summary>
+        public const double AlignStrength = 1.0;
+
+        /// <summary>Default auto-align temporal smoothing window (frames, odd).</summary>
+        public const int AlignSmooth = 13;
+
+        /// <summary>Default auto-align max shift, in crop pixels.</summary>
+        public const double AlignMaxShift = 40.0;
     }
 
     /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
@@ -346,6 +358,49 @@ public class H3FaceRefineExtension : Extension
             OrderPriority: priority++,
             FeatureFlag: "h3_face_refine",
             DoNotPreview: true
+        ));
+
+        H3FaceAlignStrength = T2IParamTypes.Register<double>(new T2IParamType(
+            Name: "H3 Face Align Strength",
+            Description: "How much of the auto-align correction to apply (1.0 = full). Lower it if the refined face still reads as wobbling inside the paste at high denoise.",
+            Default: Num(H3FaceRefineDefaults.AlignStrength),
+            Min: 0.0,
+            Max: 1.0,
+            Step: 0.05,
+            ViewType: ParamViewType.SLIDER,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
+        ));
+
+        H3FaceAlignSmooth = T2IParamTypes.Register<int>(new T2IParamType(
+            Name: "H3 Face Align Smooth Frames",
+            Description: "Gaussian window smoothing the align correction over time (odd). Higher = calmer motion, but a lagging correction if the face genuinely moves fast.",
+            Default: Num(H3FaceRefineDefaults.AlignSmooth),
+            Min: 1,
+            Max: 51,
+            Step: 2,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
+        ));
+
+        H3FaceAlignMaxShift = T2IParamTypes.Register<double>(new T2IParamType(
+            Name: "H3 Face Align Max Shift",
+            Description: "Skip the align on frames whose two face centres are farther apart than this (pixels, crop space) - bigger gaps are detected as mismatch detection or tracking breakage, not an offset.",
+            Default: Num(H3FaceRefineDefaults.AlignMaxShift),
+            Min: 10.0,
+            Max: 200.0,
+            Step: 5.0,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
         ));
 
         H3FaceRefineVideoFile = T2IParamTypes.Register<string>(new T2IParamType(
@@ -853,9 +908,9 @@ public class H3FaceRefineExtension : Extension
                     ["transform"] = transform,
                     ["detector"] = "bbox/face_yolov8m.pt",
                     ["confidence"] = confidence,
-                    ["max_shift"] = 40.0,
-                    ["align_strength"] = 1.0,
-                    ["smooth_frames"] = 13
+                    ["max_shift"] = g.UserInput.Get(H3FaceAlignMaxShift, H3FaceRefineDefaults.AlignMaxShift),
+                    ["align_strength"] = g.UserInput.Get(H3FaceAlignStrength, H3FaceRefineDefaults.AlignStrength),
+                    ["smooth_frames"] = g.UserInput.Get(H3FaceAlignSmooth, H3FaceRefineDefaults.AlignSmooth)
                 });
                 refinedCrops = [realignNode, 0];
             }
