@@ -242,3 +242,54 @@ Pass de optimización en la extensión (sin cambios de comportamiento observable
 Nota: no hay toolchain .NET en este entorno; verificado con `node --check` (JS), balanceo de
 llaves/paréntesis (C#) y revisión manual del diff. Comportamiento de workflow idéntico: los
 nodos generados reciben exactamente los mismos valores (con normalización añadida de ref size).
+
+## Sesión 2 (2026-10-13): estabilización del paste + SAM masks
+Estado al cerrar: el pipeline sustitución-de-cara funciona de principio a fin (con y sin
+metadata). Falta afinar el acoplamiento visual: "la ref no acaba de encajar del todo".
+
+### Causa raíz descubierta ( crítica, no perder)
+- **CleanTypeName conserva SOLO letras a-z: los dígitos se CAEN.** `H3 Face Denoise` →
+  `hfacedenoise` (¡no `h3facedenoise`!). La revisión original y PR#1 lo tenían al revés:
+  las claves `hface*` originales eran las correctas.
+- El botón del historial (JS) enviaba overrides `h3face*` con fallback defaults
+  (denoise 0.27, steps 6, feather 22) que SE RESOLVÍAN al mismo id limpio que los
+  valores del panel y, al procesarse después, LOS SOBRESCRIBÍAN. Todas las pruebas
+  de denoise anteriores corrieron a 0.27. FIX: el JS ya no manda parámetros del
+  panel (los colecciona getGenInput de SwarmUI, solo manda `hfacerefinevideofile`
+  + disarms). Un typo adicional (`hfacerefinvideofile` sin una 'e') causó una vez
+  que el refine degenerara en regeneración completa desde el panel.
+
+### SwarmsH3FaceRealign (SwarmModels.py, repo raíz, commits locales outer `e81f1e80`+)
+- Fallback YOLO cuando insightface no encuadra un frame (crash NoneType arreglado).
+- Diagnóstico: mean/max shift con frame, jitter px/frame (+frame), runs >1px.
+- Filtro de mediana 2 pasadas (+/-4 >4px, +/-2 >2.5px) sobre shifts crudos.
+- **scale match**: escala uniforme por distancia inter-ocular src/ref (clamp 0.75-1.35),
+  suavizada con ventana ANCHA (>=41 frames) para no perseguir el zoom aparente del giro
+  de cabeza (eso causaba "respiración" nariz-laurel con máscara casi fija).
+- **rate limiter**: pendiente de la corrección limitada a `max_rate` px/frame (default 0.5;
+  panel `H3 Face Align Max Rate`), pasadas forward+backward simétricas. Mata la
+  oscilación residual (el ruido de kps en cara sustituida es correlacionado y
+  sobrevive al gaussiano). Esperable jitter <= max_rate.
+- Tolerancia al auto-padding del tracker (146->158->146): el realign solo procesa los
+  frames que describe el transform; el padding pasa sin tocar (el stitch recorta).
+- Matemática del affine verificada numéricamente (bit-exacta con s=1 vs la versión de
+  antes; escala correcta con s!=1).
+
+### SAM masks (commit `f1bd9c0`, `df13f04`, `5bd1c0d`)
+- Cableado: `SAMLoader` (Impact, `sam_vit_b_01ec64.pth`, ya descargado en
+  dlbackend/ComfyUI/models/sams) -> `H3FaceMaskSAM` (threshold 0.93, dilation 16,
+  temporal_smooth 5) -> input `masks` de `H3FaceStitch` (que ya lo admitía).
+- Params panel: `H3 Face SAM Mask` (default on), `SAM Threshold`, `SAM Dilation` (16),
+  `SAM Feather` (default 6). Con SAM, el feather del parámetro Feather se ignora.
+- Verificado en vivo: 362/362 frames segmentados, 0 fallbacks, coverage 4.5%->7.7% con
+  dilation 16. SAM corre por frame (~35s para 362f en la 5070 Ti).
+
+### Pendiente (siguiente sesión)
+1. Probar el rate limiter (última iteración, SIN test del usuario aún): mismo clip,
+   Align Max Rate 0.4, Align Smooth 21, SAM feather 10. Log esperable: jitter <=0.4.
+2. "No acaba de encajar la ref con el orig": levers restantes = SAM tuning fino,
+   Align Strength 0.7-0.85, prompt facial descriptivo del ref.
+3. Considerar: máscara por intersección SAM∩elipse (hoy SAM substituye), y revisar
+   si el "slide" residual con SAM activo viene del repaint (no del align).
+4. Los fixes de SwarmModels.py viven en el repo raíz local (remoto upstream sin push);
+   hacer patch file si se va a reclonar SwarmUI.
