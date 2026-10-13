@@ -15,19 +15,19 @@
         return;
     }
 
-    let videoExtensions = ['mp4', 'webm', 'gif', 'mov', 'avi', 'mkv'];
+    // Precompiled pattern: matches a known video extension at the very end of the URL,
+    // tolerating an optional query string. Avoids re-splitting/parsing the src string on
+    // every media-button visibility check (this runs for every element in the history view).
+    let videoExtensionPattern = /\.(mp4|webm|gif|mov|avi|mkv)(\?[^]*)?$/i;
 
     function isVideoSrc(src) {
-        let isDataImage = src.startsWith('data:');
-        let isDataVideo = isDataImage && src.toLowerCase().startsWith('data:video/');
-        if (isDataVideo) {
+        if (src.startsWith('data:') && src.toLowerCase().startsWith('data:video/')) {
             return false;
         }
         if (typeof getMediaType === 'function' && getMediaType(src) === 'video') {
             return true;
         }
-        let extension = src.split('.').pop().toLowerCase().split('?')[0];
-        return videoExtensions.includes(extension);
+        return videoExtensionPattern.test(src);
     }
 
     registerMediaButton(

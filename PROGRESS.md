@@ -219,3 +219,25 @@ Autorizado: instalar ComfyUI-H3-NativeAudioLock y cablearlo (HECHO).
 - Path SAM (`H3FaceMaskSAM` + masks al stitch, feather 4-8) como mejora de bordes.
 
 ## Siguientes pasos anteriores (ya hechos: ver "Fixes implementados")
+## Optimización de rendimiento (2026-10-13)
+Pass de optimización en la extensión (sin cambios de comportamiento observable):
+1. **Regex compiladas una sola vez** (`MediaReferenceTagRegex`, `WhitespaceCollapseRegex`):
+   antes `SanitizeFacialPrompt` re-parseaba los patrones en cada llamada vía `Regex.Replace`.
+2. **Caché del escaneo de modelos H3** (`FindCachedH3Model`): buscar un modelo MiniMax H3
+   recorría todos los `Program.T2IModelSets` en cada refinado desde el botón de historial.
+   Ahora se cachea; invalidación por el evento estático `T2IModelSet<T>.OnChanged` (+ sets
+   creados después vía `FDSTreeDictionary.Added`) y revalidación barata con `File.Exists`.
+3. **Lecturas de `UserInput` hoisteadas fuera de `ProcessFaceStage`**: `ref_image_size`,
+   multiplicadores small/large, auto-align paste y el flag `h3_audio_lock` se leían repetidas
+   veces por stage (cada `Get<double>` implica parseo de string). Se leen una vez por request.
+   Extra: normalización defensiva de `Ref Image Size` a {match,max} (valores desconocidos →
+   "match", el default rápido/barato en VRAM).
+4. **Lectura del vídeo fuente**: `FileStream` con buffer de 1MB + `ReadExactly`
+   (`FileOptions.SequentialScan`) en lugar del bucle manual chunk-a-chunk; además
+   `FileShare.Read` evita bloqueos en lecturas concurrentes.
+5. **JS del botón de historial**: `isVideoSrc` usaba `split().pop().toLowerCase()` sobre el
+   src completo en cada comprobación de visibilidad del botón (se ejecuta para cada elemento
+   de la vista de historial); ahora usa un patrón precompilado anclado al final.
+Nota: no hay toolchain .NET en este entorno; verificado con `node --check` (JS), balanceo de
+llaves/paréntesis (C#) y revisión manual del diff. Comportamiento de workflow idéntico: los
+nodos generados reciben exactamente los mismos valores (con normalización añadida de ref size).

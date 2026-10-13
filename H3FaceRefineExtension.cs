@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using FreneticUtilities.FreneticDataSyntax;
 using FreneticUtilities.FreneticExtensions;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
@@ -83,6 +84,57 @@ public class H3FaceRefineExtension : Extension
     private static string Num(int value)
     {
         return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// Compiled once and reused: the &lt;Picture i&gt;/&lt;Video k&gt;/&lt;Audio j&gt; reference tags of the
+    /// original generation that must be stripped from refine prompts. Static readonly so the regex
+    /// is not re-parsed on every prompt sanitize (and never inside a per-frame loop).
+    /// </summary>
+    private static readonly Regex MediaReferenceTagRegex = new(@"<\s*[Pp]icture\s+\d+\s*>|<\s*[Vv]ideo\s+\d+\s*>|<\s*[Aa]udio\s+\d+\s*>", RegexOptions.Compiled);
+
+    /// <summary>Compiled once and reused: collapses runs of spaces/tabs left behind by stripped tags.</summary>
+    private static readonly Regex WhitespaceCollapseRegex = new(@"[ \t]{2,}", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Cached model scan for the standalone-video path: finding a MiniMax H3 model scans every
+    /// registered model set (thousands of entries), which is pure wasted CPU on repeated
+    /// history-button refinements. The cache is invalidated whenever any model set changes
+    /// (<see cref="T2IModelSet{T}"/>'s static <see cref="T2IModelSet{T}.OnChanged"/> event fires
+    /// on load/add/remove/reload, and it is also cheaply revalidated against the file below),
+    /// so newly installed or removed models are picked up automatically.
+    /// </summary>
+    private static T2IModel cachedH3Model;
+    private static bool h3ModelScanSubscribed;
+
+    private static T2IModel FindCachedH3Model()
+    {
+        if (!h3ModelScanSubscribed)
+        {
+            // Subscribe once to every current set's change event...
+            foreach (T2IModelSet<T2IModel> set in Program.T2IModelSets.Values)
+            {
+                T2IModelSet<T2IModel>.OnChanged += InvalidateH3ModelCache;
+            }
+            // ...and to sets created later (e.g. added by other extensions after startup).
+            Program.T2IModelSets.Added += (_, _) => T2IModelSet<T2IModel>.OnChanged += InvalidateH3ModelCache;
+            h3ModelScanSubscribed = true;
+        }
+        if (cachedH3Model is not null && File.Exists(cachedH3Model.LocalPath))
+        {
+            return cachedH3Model;
+        }
+        cachedH3Model = null;
+        T2IModel h3Model = Program.T2IModelSets.Values
+            .SelectMany(set => set.Models?.Values ?? Enumerable.Empty<T2IModel>())
+            .FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID);
+        cachedH3Model = h3Model;
+        return h3Model;
+    }
+
+    private static void InvalidateH3ModelCache()
+    {
+        cachedH3Model = null;
     }
 
     public override void OnInit()
@@ -336,6 +388,19 @@ public class H3FaceRefineExtension : Extension
         ));
     }
 
+    /// <summary>
+    /// Normalizes the 'H3 Face Ref Image Size' value to the node's accepted set ('match'/'max').
+    /// Unknown or empty values fall back to the 'match' default (fastest, lowest VRAM).
+    /// </summary>
+    private static string NormalizeRefSize(string raw)
+    {
+        return raw?.Trim().ToLowerInvariant() switch
+        {
+            "max" => "max",
+            _ => "match"
+        };
+    }
+
     /// <summary>Returns the path unchanged if it stays inside 'root', otherwise a safe fallback path under root.</summary>
     private static string SanitizeRelativeWithinRoot(string path, string root, string fallbackName)
     {
@@ -447,9 +512,8 @@ public class H3FaceRefineExtension : Extension
         if (!g.IsMiniMaxH3())
         {
             // Search every model set - avoids hardcoding set names ("Diffusion Models", etc.) that may change upstream.
-            T2IModel h3Model = Program.T2IModelSets.Values
-                .SelectMany(set => set.Models?.Values ?? Enumerable.Empty<T2IModel>())
-                .FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID);
+            // Result is cached (see FindCachedH3Model) so repeated history-button refinements skip the full scan.
+            T2IModel h3Model = FindCachedH3Model();
 
             if (h3Model is not null)
             {
@@ -465,21 +529,14 @@ public class H3FaceRefineExtension : Extension
         Logs.Info($"H3 Face Refine: Processing video '{resolvedPath}'");
 
         // Read through a using-scoped stream so the file handle is always released, even on failure.
+        // FileStream with a large buffer + File.ReadExactly avoids per-chunk loop overhead and
+        // intermediate array copies that File.ReadAllBytes/BufferedStream paths incur for big videos.
         byte[] rawVideoData;
         try
         {
-            using FileStream stream = File.OpenRead(resolvedPath);
+            using FileStream stream = new(resolvedPath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1 << 20, FileOptions.SequentialScan);
             rawVideoData = new byte[stream.Length];
-            int totalRead = 0;
-            while (totalRead < rawVideoData.Length)
-            {
-                int read = stream.Read(rawVideoData.AsSpan(totalRead));
-                if (read <= 0)
-                {
-                    break;
-                }
-                totalRead += read;
-            }
+            stream.ReadExactly(rawVideoData);
         }
         catch (Exception ex)
         {
@@ -574,8 +631,8 @@ public class H3FaceRefineExtension : Extension
         string cleaned = rawPrompt ?? "";
         if (!string.IsNullOrWhiteSpace(cleaned))
         {
-            cleaned = Regex.Replace(cleaned, "<\\s*[Pp]icture\\s+\\d+\\s*>|<\\s*[Vv]ideo\\s+\\d+\\s*>|<\\s*[Aa]udio\\s+\\d+\\s*>", " ");
-            cleaned = Regex.Replace(cleaned, "[ \\t]{2,}", " ").Trim();
+            cleaned = MediaReferenceTagRegex.Replace(cleaned, " ");
+            cleaned = WhitespaceCollapseRegex.Replace(cleaned, " ").Trim();
         }
         if (string.IsNullOrWhiteSpace(cleaned))
         {
@@ -602,6 +659,14 @@ public class H3FaceRefineExtension : Extension
         string canvasMode = g.UserInput.Get(H3FaceRefineCanvasSize, "auto_capped_768");
         int feather = g.UserInput.Get(H3FaceRefineFeather, H3FaceRefineDefaults.Feather);
         double confidence = g.UserInput.Get(H3FaceRefineConfidence, H3FaceRefineDefaults.Confidence);
+        // Read the per-request settings that ProcessFaceStage needs exactly once, up front.
+        // (These were previously re-read from UserInput - including a culture-sensitive string
+        // parse on every call - inside each stage; hoisting them keeps stage building allocation-free.)
+        string refImageSize = NormalizeRefSize(g.UserInput.Get(H3FaceRefineRefSize, "match"));
+        double multSmall = g.UserInput.Get(H3FaceRefineMultSmall, H3FaceRefineDefaults.MultSmall);
+        double multLarge = g.UserInput.Get(H3FaceRefineMultLarge, H3FaceRefineDefaults.MultLarge);
+        bool autoAlignPaste = g.UserInput.Get(H3FaceRealignPaste, true);
+        bool hasAudioLock = g.Features.Contains("h3_audio_lock") && g.CurrentAudioVae is not null;
         string targetMode = targetModeRaw; // validated above against TargetOptions
         bool hasRefImage1 = g.UserInput.TryGet(H3FaceRefineReferenceImage, out Image refImg1) && refImg1 is not null;
         bool hasRefImage2 = g.UserInput.TryGet(H3FaceRefineReferenceImage2, out Image refImg2) && refImg2 is not null;
@@ -697,7 +762,7 @@ public class H3FaceRefineExtension : Extension
                 ["width"] = canvasW,
                 ["height"] = canvasH,
                 ["length"] = frameCount,
-                ["ref_image_size"] = g.UserInput.Get(H3FaceRefineRefSize, "match"),
+                ["ref_image_size"] = refImageSize,
                 ["vae"] = g.CurrentVae.Path
             };
             if (hasStageRef)
@@ -727,7 +792,7 @@ public class H3FaceRefineExtension : Extension
             // face's mouth from the original performance.
             JArray samplerModel = g.CurrentModel.Path;
             JArray samplerLatent = injectedLatent;
-            if (audioNode is not null && g.Features.Contains("h3_audio_lock") && g.CurrentAudioVae is not null)
+            if (audioNode is not null && hasAudioLock)
             {
                 string lockNode = g.CreateNode("MiniMaxH3NativeAudioLock", new JObject()
                 {
@@ -746,8 +811,8 @@ public class H3FaceRefineExtension : Extension
                 ["model"] = samplerModel,
                 ["av_latent"] = samplerLatent,
                 ["transform"] = transform,
-                ["denoise_multiplier_small_face"] = g.UserInput.Get(H3FaceRefineMultSmall, H3FaceRefineDefaults.MultSmall),
-                ["denoise_multiplier_large_face"] = g.UserInput.Get(H3FaceRefineMultLarge, H3FaceRefineDefaults.MultLarge),
+                ["denoise_multiplier_small_face"] = multSmall,
+                ["denoise_multiplier_large_face"] = multLarge,
                 ["scale_mode"] = "absolute_px",
                 ["face_px_small"] = 30.0,
                 ["face_px_large"] = 120.0,
@@ -808,7 +873,7 @@ public class H3FaceRefineExtension : Extension
             // original head. The node detects the face in each refined crop and in the matching
             // source crop and shifts the refined one so the two faces coincide (translation only,
             // so a substituted identity is not distorted).
-            if (g.UserInput.Get(H3FaceRealignPaste, true))
+            if (autoAlignPaste)
             {
                 string realignNode = g.CreateNode("SwarmH3FaceRealign", new JObject()
                 {
