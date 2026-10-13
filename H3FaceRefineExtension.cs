@@ -4,7 +4,6 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
-using FreneticUtilities.FreneticDataSyntax;
 using FreneticUtilities.FreneticExtensions;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
@@ -97,44 +96,16 @@ public class H3FaceRefineExtension : Extension
     private static readonly Regex WhitespaceCollapseRegex = new(@"[ \t]{2,}", RegexOptions.Compiled);
 
     /// <summary>
-    /// Cached model scan for the standalone-video path: finding a MiniMax H3 model scans every
-    /// registered model set (thousands of entries), which is pure wasted CPU on repeated
-    /// history-button refinements. The cache is invalidated whenever any model set changes
-    /// (<see cref="T2IModelSet{T}"/>'s static <see cref="T2IModelSet{T}.OnChanged"/> event fires
-    /// on load/add/remove/reload, and it is also cheaply revalidated against the file below),
-    /// so newly installed or removed models are picked up automatically.
+    /// Finds an installed MiniMax H3 model by scanning every registered model set.
+    /// NOTE: this PR's proposed caching (invalidate via T2IModelSet change events) was DROPPED —
+    /// T2IModelSet/LocalPath/Added do not exist in this SwarmUI, and the linear scan costs
+    /// milliseconds next to a multi-minute video job.
     /// </summary>
-    private static T2IModel cachedH3Model;
-    private static bool h3ModelScanSubscribed;
-
     private static T2IModel FindCachedH3Model()
     {
-        if (!h3ModelScanSubscribed)
-        {
-            // Subscribe once to every current set's change event...
-            foreach (T2IModelSet<T2IModel> set in Program.T2IModelSets.Values)
-            {
-                T2IModelSet<T2IModel>.OnChanged += InvalidateH3ModelCache;
-            }
-            // ...and to sets created later (e.g. added by other extensions after startup).
-            Program.T2IModelSets.Added += (_, _) => T2IModelSet<T2IModel>.OnChanged += InvalidateH3ModelCache;
-            h3ModelScanSubscribed = true;
-        }
-        if (cachedH3Model is not null && File.Exists(cachedH3Model.LocalPath))
-        {
-            return cachedH3Model;
-        }
-        cachedH3Model = null;
-        T2IModel h3Model = Program.T2IModelSets.Values
+        return Program.T2IModelSets.Values
             .SelectMany(set => set.Models?.Values ?? Enumerable.Empty<T2IModel>())
             .FirstOrDefault(m => m.ModelClass?.ID == T2IModelClassSorter.CompatMiniMaxH3.ID);
-        cachedH3Model = h3Model;
-        return h3Model;
-    }
-
-    private static void InvalidateH3ModelCache()
-    {
-        cachedH3Model = null;
     }
 
     public override void OnInit()
@@ -512,7 +483,7 @@ public class H3FaceRefineExtension : Extension
         if (!g.IsMiniMaxH3())
         {
             // Search every model set - avoids hardcoding set names ("Diffusion Models", etc.) that may change upstream.
-            // Result is cached (see FindCachedH3Model) so repeated history-button refinements skip the full scan.
+            // Scans every model set (no hardcoded set names that may change upstream).
             T2IModel h3Model = FindCachedH3Model();
 
             if (h3Model is not null)

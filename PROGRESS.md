@@ -223,10 +223,11 @@ Autorizado: instalar ComfyUI-H3-NativeAudioLock y cablearlo (HECHO).
 Pass de optimización en la extensión (sin cambios de comportamiento observable):
 1. **Regex compiladas una sola vez** (`MediaReferenceTagRegex`, `WhitespaceCollapseRegex`):
    antes `SanitizeFacialPrompt` re-parseaba los patrones en cada llamada vía `Regex.Replace`.
-2. **Caché del escaneo de modelos H3** (`FindCachedH3Model`): buscar un modelo MiniMax H3
-   recorría todos los `Program.T2IModelSets` en cada refinado desde el botón de historial.
-   Ahora se cachea; invalidación por el evento estático `T2IModelSet<T>.OnChanged` (+ sets
-   creados después vía `FDSTreeDictionary.Added`) y revalidación barata con `File.Exists`.
+2. **Caché del escaneo de modelos H3** (`FindCachedH3Model`): PROPUESTA en esta PR pero
+   DESCARTADA en la integración - `T2IModelSet<T>`/`T2IModel.LocalPath`/`Dictionary.Added`
+   no existen en este SwarmUI (la PR se generó sin toolchain .NET), y el escaneo lineal
+   cuesta milisegundos frente a un run de minutos. `FindCachedH3Model` queda como el
+   escaneo plano sin claves hardcodeadas.
 3. **Lecturas de `UserInput` hoisteadas fuera de `ProcessFaceStage`**: `ref_image_size`,
    multiplicadores small/large, auto-align paste y el flag `h3_audio_lock` se leían repetidas
    veces por stage (cada `Get<double>` implica parseo de string). Se leen una vez por request.
