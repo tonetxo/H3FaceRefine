@@ -33,6 +33,9 @@
     registerMediaButton(
         'H3 Face Refine',
         (src) => {
+            console.log('[H3 Face Refine] action called, src =', src,
+                '| frontend feature set:', typeof currentBackendFeatureSet === 'undefined' ? '<undefined>' : currentBackendFeatureSet,
+                '| handler:', typeof mainGenHandler === 'undefined' ? '<undefined>' : typeof mainGenHandler.doGenerate);
             if (typeof currentBackendFeatureSet === 'undefined' || !currentBackendFeatureSet.includes('h3_face_refine')) {
                 let message = 'H3 Face Refine is not available on the current backend. Please verify ComfyUI-H3-FaceRefine is installed.';
                 console.warn('H3 Face Refine: ' + message);
