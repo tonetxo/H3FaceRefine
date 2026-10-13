@@ -98,11 +98,8 @@ public class H3FaceRefineExtension : Extension
         /// <summary>Default SAM candidate-mask score threshold.</summary>
         public const double SamThreshold = 0.93;
 
-        /// <summary>Default SAM mask dilation, in canvas px.</summary>
-        public const int SamDilation = 16;
-
-        /// <summary>Default SAM mask feather, in canvas px.</summary>
-        public const int SamFeather = 6;
+        /// <summary>Default SAM mask dilation, in canvas px (tight for SAM, avoids halo).</summary>
+        public const int SamDilation = 6;
 
         /// <summary>Default align-correction slope cap, in px per frame.</summary>
         public const double AlignMaxRate = 0.5;
@@ -986,40 +983,7 @@ public class H3FaceRefineExtension : Extension
             });
             JArray refinedCrops = [decodeNode, 0];
 
-            // H3's repaint re-frames the face content inside the crop by a few pixels while the
-            // paste position itself is exact - which reads as the refined face sliding over the
-            // original head. The node detects the face in each refined crop and in the matching
-            // source crop and shifts the refined one so the two faces coincide (translation only,
-            // so a substituted identity is not distorted).
-            if (autoAlignPaste)
-            {
-                string realignNode = g.CreateNode("SwarmH3FaceRealign", new JObject()
-                {
-                    ["refined_crops"] = refinedCrops,
-                    ["source_crops"] = crops,
-                    ["transform"] = transform,
-                    ["detector"] = "bbox/face_yolov8m.pt",
-                    ["confidence"] = confidence,
-                    ["max_shift"] = g.UserInput.Get(H3FaceAlignMaxShift, H3FaceRefineDefaults.AlignMaxShift),
-                    ["align_strength"] = g.UserInput.Get(H3FaceAlignStrength, H3FaceRefineDefaults.AlignStrength),
-                    ["smooth_frames"] = g.UserInput.Get(H3FaceAlignSmooth, H3FaceRefineDefaults.AlignSmooth),
-                    ["max_rate"] = g.UserInput.Get(H3FaceAlignMaxRate, H3FaceRefineDefaults.AlignMaxRate)
-                });
-                refinedCrops = [realignNode, 0];
-            }
-
-            JObject stitchInputs = new()
-            {
-                ["base_images"] = frames,
-                ["refined_crops"] = refinedCrops,
-                ["transform"] = transform,
-                ["paste_region"] = "face_ellipse",
-                ["mask_dilation"] = 24,
-                ["feather"] = samMask ? g.UserInput.Get(H3FaceSAMFeather, H3FaceRefineDefaults.SamMaskFeather) : feather,
-                ["colour_match"] = 1.0,
-                ["blend"] = 1.0,
-                ["undetected_frames"] = "fade_out"
-            };
+            JArray pasteMask = null;
             if (samMask)
             {
                 // Face-shaped paste masks: SAM segments the actual face per stabilised crop, so
@@ -1040,8 +1004,59 @@ public class H3FaceRefineExtension : Extension
                     ["dilation"] = g.UserInput.Get(H3FaceSAMDilation, H3FaceRefineDefaults.SamDilation),
                     ["temporal_smooth"] = 5
                 });
-                stitchInputs["masks"] = new JArray(samMaskNode, 0);
-                Logs.Info("H3 Face Refine: SAM mask enabled for stitching (feather forced small).");
+                pasteMask = [samMaskNode, 0];
+                Logs.Info("H3 Face Refine: SAM mask generated from source crops.");
+            }
+
+            // H3's repaint re-frames the face content inside the crop by a few pixels while the
+            // paste position itself is exact - which reads as the refined face sliding over the
+            // original head. The node detects the face in each refined crop and in the matching
+            // source crop and shifts the refined one so the two faces coincide (translation only,
+            // so a substituted identity is not distorted).
+            // When a SAM mask is present, it is warped by the exact same transform so the mask
+            // stays perfectly synchronized with the realigned facial features.
+            if (autoAlignPaste)
+            {
+                JObject realignInputs = new()
+                {
+                    ["refined_crops"] = refinedCrops,
+                    ["source_crops"] = crops,
+                    ["transform"] = transform,
+                    ["detector"] = "bbox/face_yolov8m.pt",
+                    ["confidence"] = confidence,
+                    ["max_shift"] = g.UserInput.Get(H3FaceAlignMaxShift, H3FaceRefineDefaults.AlignMaxShift),
+                    ["align_strength"] = g.UserInput.Get(H3FaceAlignStrength, H3FaceRefineDefaults.AlignStrength),
+                    ["smooth_frames"] = g.UserInput.Get(H3FaceAlignSmooth, H3FaceRefineDefaults.AlignSmooth),
+                    ["max_rate"] = g.UserInput.Get(H3FaceAlignMaxRate, H3FaceRefineDefaults.AlignMaxRate)
+                };
+                if (pasteMask is not null)
+                {
+                    realignInputs["mask"] = pasteMask;
+                }
+                string realignNode = g.CreateNode("SwarmH3FaceRealign", realignInputs);
+                refinedCrops = [realignNode, 0];
+                if (pasteMask is not null)
+                {
+                    pasteMask = [realignNode, 1];
+                    Logs.Info("H3 Face Refine: SAM mask realigned with face transformation.");
+                }
+            }
+
+            JObject stitchInputs = new()
+            {
+                ["base_images"] = frames,
+                ["refined_crops"] = refinedCrops,
+                ["transform"] = transform,
+                ["paste_region"] = "face_ellipse",
+                ["mask_dilation"] = 24,
+                ["feather"] = samMask ? g.UserInput.Get(H3FaceSAMFeather, H3FaceRefineDefaults.SamMaskFeather) : feather,
+                ["colour_match"] = 1.0,
+                ["blend"] = 1.0,
+                ["undetected_frames"] = "fade_out"
+            };
+            if (pasteMask is not null)
+            {
+                stitchInputs["masks"] = pasteMask;
             }
             string stitchNode = g.CreateNode("H3FaceStitch", stitchInputs);
             return [stitchNode, 0];
