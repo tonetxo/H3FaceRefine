@@ -40,6 +40,7 @@ public class H3FaceRefineExtension : Extension
     public static T2IRegisteredParam<double> H3FaceSAMThreshold;
     public static T2IRegisteredParam<int> H3FaceSAMDilation;
     public static T2IRegisteredParam<int> H3FaceSAMFeather;
+    public static T2IRegisteredParam<double> H3FaceAlignMaxRate;
 
     // Internal history video parameter
     public static T2IRegisteredParam<string> H3FaceRefineVideoFile;
@@ -102,6 +103,9 @@ public class H3FaceRefineExtension : Extension
 
         /// <summary>Default SAM mask feather, in canvas px.</summary>
         public const int SamFeather = 6;
+
+        /// <summary>Default align-correction slope cap, in px per frame.</summary>
+        public const double AlignMaxRate = 0.5;
     }
 
     /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
@@ -469,6 +473,20 @@ public class H3FaceRefineExtension : Extension
             Min: 2,
             Max: 64,
             Step: 2,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true,
+            IsAdvanced: true
+        ));
+
+        H3FaceAlignMaxRate = T2IParamTypes.Register<double>(new T2IParamType(
+            Name: "H3 Face Align Max Rate",
+            Description: "Maximum align-correction change per frame (px). Caps the correction slope so landmark noise cannot make the pasted face oscillate or pop; genuine movement runs ~0.7px/frame, so the default 0.5 tracks it. Lower to 0.3 for maximum calm.",
+            Default: Num(H3FaceRefineDefaults.AlignMaxRate),
+            Min: 0.1,
+            Max: 3.0,
+            Step: 0.05,
             Group: H3FaceRefineGroup,
             OrderPriority: priority++,
             FeatureFlag: "h3_face_refine",
@@ -984,7 +1002,8 @@ public class H3FaceRefineExtension : Extension
                     ["confidence"] = confidence,
                     ["max_shift"] = g.UserInput.Get(H3FaceAlignMaxShift, H3FaceRefineDefaults.AlignMaxShift),
                     ["align_strength"] = g.UserInput.Get(H3FaceAlignStrength, H3FaceRefineDefaults.AlignStrength),
-                    ["smooth_frames"] = g.UserInput.Get(H3FaceAlignSmooth, H3FaceRefineDefaults.AlignSmooth)
+                    ["smooth_frames"] = g.UserInput.Get(H3FaceAlignSmooth, H3FaceRefineDefaults.AlignSmooth),
+                    ["max_rate"] = g.UserInput.Get(H3FaceAlignMaxRate, H3FaceRefineDefaults.AlignMaxRate)
                 });
                 refinedCrops = [realignNode, 0];
             }
