@@ -138,6 +138,7 @@ refined frames (audio/FPS metadata preserved).
 | `H3 Face Align Strength` | `1.0` | 0 – 1 | Share of the auto-align correction applied. Lower if the refined face wobbles inside the paste at high denoise. |
 | `H3 Face Align Smooth Frames` | `13` | 1 – 51 (odd) | Gaussian window smoothing the align correction over time. |
 | `H3 Face Align Max Shift` | `40` | 10 – 200 (px) | Frames whose two face centres are farther apart than this are left unaligned (mismatch detection). |
+| `H3 Face SAM Mask` | `on` | toggle | Segment the face per frame with SAM (Impact Pack) and paste through the face-shaped mask instead of a fixed ellipse; forces feather 6. Needs a SAM model in `models/sams/` (e.g. `sam_vit_b_01ec64.pth`). |
 | `H3 Face Refine Video File` | *(hidden)* | string | Internal parameter set by the history button. |
 
 ---

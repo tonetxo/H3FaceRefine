@@ -36,6 +36,7 @@ public class H3FaceRefineExtension : Extension
     public static T2IRegisteredParam<double> H3FaceAlignStrength;
     public static T2IRegisteredParam<int> H3FaceAlignSmooth;
     public static T2IRegisteredParam<double> H3FaceAlignMaxShift;
+    public static T2IRegisteredParam<bool> H3FaceSAMMask;
 
     // Internal history video parameter
     public static T2IRegisteredParam<string> H3FaceRefineVideoFile;
@@ -83,6 +84,12 @@ public class H3FaceRefineExtension : Extension
 
         /// <summary>Default auto-align max shift, in crop pixels.</summary>
         public const double AlignMaxShift = 40.0;
+
+        /// <summary>Feather used with SAM face masks (they need a small one, per the pack: 4-8).</summary>
+        public const int SamMaskFeather = 6;
+
+        /// <summary>Impact Pack SAM model filename used for face-shaped paste masks.</summary>
+        public const string SamModel = "sam_vit_b_01ec64.pth";
     }
 
     /// <summary>Formats a numeric default as its invariant-culture string for parameter registration.</summary>
@@ -403,6 +410,17 @@ public class H3FaceRefineExtension : Extension
             IsAdvanced: true
         ));
 
+        H3FaceSAMMask = T2IParamTypes.Register<bool>(new T2IParamType(
+            Name: "H3 Face SAM Mask",
+            Description: "Segment the face per frame with SAM (ComfyUI-Impact-Pack) and paste through that face-shaped mask instead of a fixed ellipse - the blend follows jaw and hairline, killing the border artifacts of a fixed mask. Forces a small feather. Needs ComfyUI-Impact-Pack and a SAM model in models/sams/.",
+            Default: "true",
+            Toggleable: true,
+            Group: H3FaceRefineGroup,
+            OrderPriority: priority++,
+            FeatureFlag: "h3_face_refine",
+            DoNotPreview: true
+        ));
+
         H3FaceRefineVideoFile = T2IParamTypes.Register<string>(new T2IParamType(
             Name: "H3 Face Refine Video File",
             Description: "Internal parameter used by the 'H3 Face Refine' button on completed videos.",
@@ -692,6 +710,7 @@ public class H3FaceRefineExtension : Extension
         double multSmall = g.UserInput.Get(H3FaceRefineMultSmall, H3FaceRefineDefaults.MultSmall);
         double multLarge = g.UserInput.Get(H3FaceRefineMultLarge, H3FaceRefineDefaults.MultLarge);
         bool autoAlignPaste = g.UserInput.Get(H3FaceRealignPaste, true);
+        bool samMask = g.UserInput.Get(H3FaceSAMMask, true);
         bool hasAudioLock = g.Features.Contains("h3_audio_lock") && g.CurrentAudioVae is not null;
         string targetMode = targetModeRaw; // validated above against TargetOptions
         bool hasRefImage1 = g.UserInput.TryGet(H3FaceRefineReferenceImage, out Image refImg1) && refImg1 is not null;
@@ -915,18 +934,42 @@ public class H3FaceRefineExtension : Extension
                 refinedCrops = [realignNode, 0];
             }
 
-            string stitchNode = g.CreateNode("H3FaceStitch", new JObject()
+            JObject stitchInputs = new()
             {
                 ["base_images"] = frames,
                 ["refined_crops"] = refinedCrops,
                 ["transform"] = transform,
                 ["paste_region"] = "face_ellipse",
                 ["mask_dilation"] = 24,
-                ["feather"] = feather,
+                ["feather"] = samMask ? H3FaceRefineDefaults.SamMaskFeather : feather,
                 ["colour_match"] = 1.0,
                 ["blend"] = 1.0,
                 ["undetected_frames"] = "fade_out"
-            });
+            };
+            if (samMask)
+            {
+                // Face-shaped paste masks: SAM segments the actual face per stabilised crop, so
+                // the blend follows jaw/hairline instead of an arbitrary ellipse - this kills the
+                // border artifacts a fixed mask shows when the geometry of the two faces differs.
+                // SAM masks are accurate: per the pack, keep feather SMALL (4-8) with them.
+                string samLoader = g.CreateNode("SAMLoader", new JObject()
+                {
+                    ["model_name"] = H3FaceRefineDefaults.SamModel,
+                    ["device_mode"] = "AUTO"
+                });
+                string samMaskNode = g.CreateNode("H3FaceMaskSAM", new JObject()
+                {
+                    ["crops"] = crops,
+                    ["sam_model"] = new JArray(samLoader, 0),
+                    ["transform"] = transform,
+                    ["threshold"] = 0.93,
+                    ["dilation"] = 0,
+                    ["temporal_smooth"] = 5
+                });
+                stitchInputs["masks"] = new JArray(samMaskNode, 0);
+                Logs.Info("H3 Face Refine: SAM mask enabled for stitching (feather forced small).");
+            }
+            string stitchNode = g.CreateNode("H3FaceStitch", stitchInputs);
             return [stitchNode, 0];
         }
 
