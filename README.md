@@ -52,8 +52,10 @@ per-frame denoise, and stitches them back seamlessly — without re-running the 
 - **Auto-align paste**: `H3 Face Auto-Align Paste` (on by default) detects the face in each regenerated crop and
   in the matching source crop (eye landmarks so a substituted identity is not distorted), then shifts the
   regenerated one so the two faces coincide before stitching — cancelling the few-pixel content offset H3 leaves
-  inside the paste that reads as the refined face "sliding" over the original head. Implemented as the Swarm
-  `SwarmH3FaceRealign` node.
+  inside the paste that reads as the refined face "sliding" over the original head. Optionally also matches the
+  inter-eye distance (uniform scale, clamped 0.75–1.35) to cancel H3's progressive zoom of the repainted face —
+  the slow drift where the pasted face wanders off the head over the clip. Implemented as the Swarm
+  `SwarmH3FaceRealign` node; see `H3 Face Align Strength` / `Smooth Frames` / `Max Shift` in the parameters table.
 - **Two reference portraits**: Reference Image 1 → Person 1 / Left; Reference Image 2 → Person 2 / Right.
 - **Clean VRAM isolation**: runs as a lightweight standalone post-process using normalized 768px face crops,
   keeping VRAM comfortably under 10 GB.
